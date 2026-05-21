@@ -10,11 +10,11 @@ Codex -> http://127.0.0.1:18666/v1/responses -> 讯飞 /v2/chat/completions
 
 ## 前置条件
 
-1. macOS
+1. macOS 或 Windows 10/11
 2. 已安装并打开过 CC Switch
 3. 已开通讯飞 Coding Plan，并拿到专属 API Key
 
-## 一键安装
+## macOS 一键安装
 
 国内用户优先使用 Gitee：
 
@@ -35,10 +35,24 @@ cd xfyun-codex-adapter
 bash install.sh
 ```
 
+## Windows 一键安装
+
+在 PowerShell 里运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://gitee.com/kangarooking/xfyun-codex-adapter/raw/main/install.ps1 | iex"
+```
+
+GitHub 备用：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/kangarooking/xfyun-codex-adapter/main/install.ps1 | iex"
+```
+
 根据提示粘贴你的讯飞 Coding Plan API Key。脚本会自动：
 
 1. 安装本地适配器
-2. 注册 macOS 后台启动项
+2. 注册后台启动项：macOS 用 LaunchAgent，Windows 用计划任务
 3. 启动 `http://127.0.0.1:18666`
 4. 在 CC Switch 里新增或更新独立的 `Xunfei Astron Adapter`
 5. 自动把 CC Switch 的 Codex provider 切到 `Xunfei Astron Adapter`
@@ -50,8 +64,16 @@ bash install.sh
 
 ## 卸载
 
+macOS：
+
 ```bash
 bash uninstall.sh
+```
+
+Windows：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://gitee.com/kangarooking/xfyun-codex-adapter/raw/main/uninstall.ps1 | iex"
 ```
 
 如果卸载时 Codex 仍然指向这个适配器，脚本会尝试切回 CC Switch 里的其他 Codex Provider。
