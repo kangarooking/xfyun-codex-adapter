@@ -8,8 +8,6 @@ PLIST="$HOME/Library/LaunchAgents/com.kangarooking.xfyun-codex-adapter.plist"
 LABEL="com.kangarooking.xfyun-codex-adapter"
 DB="$APP_DIR/cc-switch.db"
 CODEX_DIR="$HOME/.codex"
-CODEX_CONFIG="$CODEX_DIR/config.toml"
-CODEX_AUTH="$CODEX_DIR/auth.json"
 PORT="18666"
 BASE_URL="http://127.0.0.1:${PORT}/v1"
 PROVIDER_ID="xfyun-astron-adapter"
@@ -56,6 +54,7 @@ import socket
 import time
 import traceback
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -218,20 +217,25 @@ def output_from_chat_message(message):
     return output
 
 
+def output_from_text(text):
+    return output_from_chat_message({"content": text})
+
+
 class Handler(BaseHTTPRequestHandler):
-    server_version = "xfyun-codex-adapter/0.2"
+    server_version = "xfyun-codex-adapter/0.3"
 
     def log_message(self, fmt, *args):
         print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {self.address_string()} {fmt % args}", flush=True)
 
     def do_GET(self):
-        if self.path in ("/health", "/v1/health"):
+        path = urllib.parse.urlparse(self.path).path
+        if path in ("/health", "/v1/health"):
             self.send_response(200)
             self.send_header("content-type", "application/json")
             self.end_headers()
             self.wfile.write(b'{"ok":true}')
             return
-        if self.path in ("/models", "/v1/models"):
+        if path in ("/models", "/v1/models"):
             self.send_response(200)
             self.send_header("content-type", "application/json")
             self.end_headers()
@@ -243,7 +247,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404)
 
     def do_POST(self):
-        if not (self.path.startswith("/v1/responses") or self.path.startswith("/responses")):
+        path = urllib.parse.urlparse(self.path).path
+        if not (path.startswith("/v1/responses") or path.startswith("/responses")):
             self.send_error(404)
             return
         try:
@@ -338,12 +343,12 @@ class Handler(BaseHTTPRequestHandler):
             data = self.fetch_upstream(auth, upstream_body)
         except urllib.error.HTTPError as err:
             detail = err.read().decode("utf-8", "replace")
-            sse(self, "response.failed", {
-                "type": "response.failed",
-                "response": response_shell(response_id, UPSTREAM_MODEL, "failed"),
-                "error": {"message": detail, "code": str(err.code)},
-            })
-            return
+            print(f"upstream HTTP {err.code}: {detail}", flush=True)
+            data = {"choices": [{"message": {"content": f"讯飞上游接口返回错误 HTTP {err.code}: {detail[:1200]}"}}]}
+        except urllib.error.URLError as err:
+            detail = str(err)
+            print(f"upstream URL error: {detail}", flush=True)
+            data = {"choices": [{"message": {"content": f"讯飞上游接口连接失败: {detail[:1200]}"}}]}
 
         message = (data.get("choices") or [{}])[0].get("message") or {}
         output = output_from_chat_message(message)
@@ -479,7 +484,6 @@ XFYUN_CODING_PLAN_API_KEY="$API_KEY" python3 <<'PYCONFIG'
 import json
 import os
 from pathlib import Path
-import shutil
 import sqlite3
 import time
 
@@ -504,9 +508,105 @@ stream_idle_timeout_ms = 300000
 settings = {"auth": {"OPENAI_API_KEY": api_key}, "config": config}
 meta = {"commonConfigEnabled": True, "endpointAutoSelect": False}
 now = int(time.time() * 1000)
-stamp = time.strftime("%Y%m%d-%H%M%S")
+home = Path.home()
+cc_switch_dir = home / ".cc-switch"
+settings_path = cc_switch_dir / "settings.json"
+codex_dir = home / ".codex"
+config_path = codex_dir / "config.toml"
+auth_path = codex_dir / "auth.json"
+
+
+def read_json(path, default):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return default
+
+
+def write_json(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def provider_exists(con, provider):
+    row = con.execute(
+        "select 1 from providers where app_type=? and id=?",
+        (app_type, provider),
+    ).fetchone()
+    return row is not None
+
+
+def get_effective_current_provider(con):
+    local_settings = read_json(settings_path, {})
+    local_id = local_settings.get("current_provider_codex")
+    if local_id and provider_exists(con, local_id):
+        return local_id
+    row = con.execute(
+        "select id from providers where app_type=? and is_current=1 limit 1",
+        (app_type,),
+    ).fetchone()
+    return row[0] if row else None
+
+
+def backfill_live_to_provider(con, provider):
+    if not provider or provider == provider_id or not provider_exists(con, provider):
+        return
+
+    live_config = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+    live_auth = read_json(auth_path, {}) if auth_path.exists() else {}
+    if not live_config and not live_auth:
+        return
+
+    row = con.execute(
+        "select settings_config from providers where app_type=? and id=?",
+        (app_type, provider),
+    ).fetchone()
+    if not row:
+        return
+    try:
+        current_settings = json.loads(row[0] or "{}")
+    except json.JSONDecodeError:
+        current_settings = {}
+    if not isinstance(current_settings, dict):
+        current_settings = {}
+    current_settings["config"] = live_config
+    current_settings["auth"] = live_auth
+    con.execute(
+        "update providers set settings_config=? where app_type=? and id=?",
+        (json.dumps(current_settings, ensure_ascii=False, separators=(",", ":")), app_type, provider),
+    )
+
+
+def apply_current_provider(con, provider):
+    con.execute("update providers set is_current=0 where app_type=?", (app_type,))
+    con.execute(
+        "update providers set is_current=1 where app_type=? and id=?",
+        (app_type, provider),
+    )
+
+    local_settings = read_json(settings_path, {})
+    if not isinstance(local_settings, dict):
+        local_settings = {}
+    local_settings["current_provider_codex"] = provider
+    write_json(settings_path, local_settings)
+
+
+def write_live_codex_config():
+    codex_dir.mkdir(parents=True, exist_ok=True)
+    common_row = con.execute(
+        "select value from settings where key='common_config_codex'",
+    ).fetchone()
+    common_config = (common_row[0] if common_row and common_row[0] else "").strip()
+    final_config = config.strip()
+    if common_config:
+        final_config = final_config + "\n\n" + common_config
+    config_path.write_text(final_config + "\n", encoding="utf-8")
+    write_json(auth_path, {"OPENAI_API_KEY": api_key})
 
 con = sqlite3.connect(db)
+previous_provider = get_effective_current_provider(con)
+backfill_live_to_provider(con, previous_provider)
+
 max_sort = con.execute(
     "select coalesce(max(sort_index), -1) from providers where app_type=?",
     (app_type,),
@@ -552,43 +652,10 @@ con.execute(
     "insert into provider_endpoints(provider_id, app_type, url, added_at) values (?, ?, ?, ?)",
     (provider_id, app_type, base_url, now),
 )
-con.execute(
-    "update providers set is_current=0 where app_type=?",
-    (app_type,),
-)
-con.execute(
-    "update providers set is_current=1 where app_type=? and id=?",
-    (app_type, provider_id),
-)
-common_row = con.execute(
-    "select value from settings where key='common_config_codex'",
-).fetchone()
+apply_current_provider(con, provider_id)
+write_live_codex_config()
 con.commit()
 con.close()
-
-codex_dir = Path.home() / ".codex"
-codex_dir.mkdir(parents=True, exist_ok=True)
-config_path = codex_dir / "config.toml"
-auth_path = codex_dir / "auth.json"
-
-for path in (config_path, auth_path):
-    if path.exists():
-        shutil.copy2(path, path.with_name(path.name + f".bak.xfyun-adapter-{stamp}"))
-
-common_config = (common_row[0] if common_row and common_row[0] else "").strip()
-final_config = config.strip()
-if common_config:
-    final_config = final_config + "\n\n" + common_config
-config_path.write_text(final_config + "\n", encoding="utf-8")
-
-auth = {}
-if auth_path.exists():
-    try:
-        auth = json.loads(auth_path.read_text(encoding="utf-8") or "{}")
-    except json.JSONDecodeError:
-        auth = {}
-auth["OPENAI_API_KEY"] = api_key
-auth_path.write_text(json.dumps(auth, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 PYCONFIG
 
 osascript -e 'tell application "CC Switch" to quit' >/dev/null 2>&1 || true

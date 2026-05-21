@@ -40,13 +40,13 @@ bash install.sh
 1. 安装本地适配器
 2. 注册 macOS 后台启动项
 3. 启动 `http://127.0.0.1:18666`
-4. 在 CC Switch 里添加 `Xunfei Astron Adapter`
+4. 在 CC Switch 里新增或更新独立的 `Xunfei Astron Adapter`
 5. 自动把 CC Switch 的 Codex provider 切到 `Xunfei Astron Adapter`
-6. 备份并写入 Codex 配置文件
+6. 切换前会先把当前 Codex 配置回填到原 Provider，方便之后切回
 
-安装完成后，只需要重启 Codex。
+安装完成后，只需要重启 Codex。之后想切回官方或其他模型，直接在 CC Switch 里切换原来的 Provider，然后重启 Codex 即可。
 
-脚本会备份原来的 `~/.codex/config.toml` 和 `~/.codex/auth.json`，备份文件名里会带 `bak.xfyun-adapter`。
+脚本不会把讯飞配置写进原 Provider；讯飞配置会保存在单独的 `Xunfei Astron Adapter` Provider 里。
 
 ## 卸载
 
@@ -54,7 +54,7 @@ bash install.sh
 bash uninstall.sh
 ```
 
-如果卸载时 Codex 仍然指向这个适配器，脚本会尝试恢复最近一次安装前的 Codex 配置备份。
+如果卸载时 Codex 仍然指向这个适配器，脚本会尝试切回 CC Switch 里的其他 Codex Provider。
 
 ## 注意
 
