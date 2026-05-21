@@ -16,7 +16,13 @@ Codex -> http://127.0.0.1:18666/v1/responses -> 讯飞 /v2/chat/completions
 
 ## 一键安装
 
-如果你是从 GitHub 直接安装，在终端运行：
+国内用户优先使用 Gitee：
+
+```bash
+curl -fsSL https://gitee.com/kangarooking/xfyun-codex-adapter/raw/main/install.sh | bash
+```
+
+如果你能稳定访问 GitHub，也可以使用 GitHub 备用链接：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/kangarooking/xfyun-codex-adapter/main/install.sh | bash
