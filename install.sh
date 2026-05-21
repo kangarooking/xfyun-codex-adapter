@@ -480,6 +480,9 @@ if [[ ! -f "$DB" ]]; then
   exit 0
 fi
 
+osascript -e 'tell application "CC Switch" to quit' >/dev/null 2>&1 || true
+sleep 1
+
 XFYUN_CODING_PLAN_API_KEY="$API_KEY" python3 <<'PYCONFIG'
 import json
 import os
@@ -538,7 +541,7 @@ def provider_exists(con, provider):
 
 def get_effective_current_provider(con):
     local_settings = read_json(settings_path, {})
-    local_id = local_settings.get("current_provider_codex")
+    local_id = local_settings.get("currentProviderCodex") or local_settings.get("current_provider_codex")
     if local_id and provider_exists(con, local_id):
         return local_id
     row = con.execute(
@@ -555,6 +558,8 @@ def backfill_live_to_provider(con, provider):
     live_config = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
     live_auth = read_json(auth_path, {}) if auth_path.exists() else {}
     if not live_config and not live_auth:
+        return
+    if "xfyun_astron_adapter" in live_config:
         return
 
     row = con.execute(
@@ -587,7 +592,8 @@ def apply_current_provider(con, provider):
     local_settings = read_json(settings_path, {})
     if not isinstance(local_settings, dict):
         local_settings = {}
-    local_settings["current_provider_codex"] = provider
+    local_settings["currentProviderCodex"] = provider
+    local_settings.pop("current_provider_codex", None)
     write_json(settings_path, local_settings)
 
 
@@ -657,9 +663,6 @@ write_live_codex_config()
 con.commit()
 con.close()
 PYCONFIG
-
-osascript -e 'tell application "CC Switch" to quit' >/dev/null 2>&1 || true
-sleep 1
 open -a "CC Switch" >/dev/null 2>&1 || true
 
 echo

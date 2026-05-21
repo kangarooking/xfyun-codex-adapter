@@ -40,7 +40,7 @@ def write_json(path, data):
 
 con = sqlite3.connect(db)
 local_settings = read_json(settings_path, {})
-current = local_settings.get("current_provider_codex")
+current = local_settings.get("currentProviderCodex") or local_settings.get("current_provider_codex")
 if not current:
     row = con.execute(
         "select id from providers where app_type=? and is_current=1 limit 1",
@@ -67,7 +67,8 @@ if current == provider_id:
             config_path.write_text(config, encoding="utf-8")
         if isinstance(auth, dict):
             write_json(auth_path, auth)
-        local_settings["current_provider_codex"] = fallback
+        local_settings["currentProviderCodex"] = fallback
+        local_settings.pop("current_provider_codex", None)
         write_json(settings_path, local_settings)
         con.execute("update providers set is_current=0 where app_type=?", (app_type,))
         con.execute(
